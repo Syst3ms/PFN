@@ -7,63 +7,75 @@ import kotlin.system.exitProcess
 val INPUT_PATTERN = "(\\d+)\\[(.+)]".toRegex()
 
 fun main() {
-    println("Note : if at any point you wish to quit the program, simply type \"exit\" in place of any text")
-    println("Please enter an array of the form a[#]")
-    println("  where a is the base and # is the array.")
-    println("  Use 0 as the base to get a controlled expansion that might not grow very large.")
-    println()
-    var match: MatchResult?
-    do {
-        val input = readInput()
-        match = INPUT_PATTERN.matchEntire(input)
-        if (match == null) {
-            println("Your input is invalid, please try again :")
-            println()
-        }
-    } while (match == null)
-    val base = match.groupValues[1].toBigInteger()
-    val array = parseArray(match.groupValues[2])
-    println("Do you want to expand the array one step at a time (enter 0),")
-    println("  or do you want to compute the final result (enter 1) ?")
-    println("  (the latter can quickly become impossible for any computer, so the program might hang)")
-    println()
-    var step: Boolean?
-    do {
-        val i = readInput().toIntOrNull()
-        step = if (i == 0) true else if (i == 1 && base.signum() > 0) false else null
-        if (step == null) {
-            if (i == 1)
-                println("Controlled expansion is only available (and interesting) in conjunction with step mode.")
-            println("Please enter 0 or 1 :")
-            println()
-        }
-    } while (step == null)
-    if (step) {
-        println("Each expansion step will be displayed one after the other. Simply press enter when you want to see the next step.")
+    outer@do {
         println()
-        var current = base to array.clean()
+        println("Note : if at any point you wish to quit the program, simply type \"exit\" in place of any text")
+        println("       if you just want to restart the program rather than ending it, type \"restart\" instead")
+        println("Please enter an array of the form a[#]")
+        println("  where a is the base and # is the array.")
+        println("  Use 0 as the base to get a controlled expansion that might not grow very large.")
+        println()
+        var match: MatchResult?
         do {
-            print(current.first.toString() + "[" + current.second.arrayToString() + "]")
-            readInput()
-            val (b, a) = current.second.step(current.first)
-            current = b to a.clean()
-        } while (current.second.size() > 0)
-        println(current.first.toString())
+            val input = readInput() ?: continue@outer
+            match = INPUT_PATTERN.matchEntire(input)
+            if (match == null) {
+                println("Your input is invalid, please try again :")
+                println()
+            }
+        } while (match == null)
+        val base = match!!.groupValues[1].toBigInteger()
+        val array = parseArray(match.groupValues[2])
+        println("Do you want to expand the array one step at a time manually (enter 0),")
+        println("  expand it one step at a time automatically (enter 1),")
+        println("  or do you want to compute the final result (enter 2) ?")
+        println("  (the last one can quickly become impossible for any computer, so the program might hang)")
         println()
-        println("Expansion complete!")
-        exitProcess(0)
-    } else {
-        println("Result :")
-        println(array.compute(base))
-    }
+        var step: Int?
+        do {
+            val i = (readInput() ?: continue@outer).toIntOrNull()
+            step = when {
+                i == 2 && base.signum() == 0 -> null
+                i in 0..2 -> i
+                else -> null
+            }
+            if (step == null) {
+                if (i == 2)
+                    println("Controlled expansion is only available (and interesting) in conjunction with step mode.")
+                println("Please enter 0, 1 or 2 :")
+                println()
+            }
+        } while (step == null)
+        if (step!! < 2) {
+            println("Each expansion step will be displayed one after the other. Simply press enter when you want to see the next step.")
+            println()
+            var current = base to array.clean()
+            do {
+                print(current.first.toString() + "[" + current.second.arrayToString() + "]")
+                if (step == 0) {
+                    readInput() ?: continue@outer
+                } else {
+                    println()
+                }
+                val (b, a) = current.second.step(current.first)
+                current = b to a.clean()
+            } while (current.second.size() > 0)
+            println(current.first.toString())
+            println()
+            println("Expansion complete!")
+        } else {
+            println("Result :")
+            println(array.compute(base))
+        }
+    } while (true)
 }
 
-fun readInput() : String {
+fun readInput() : String? {
     val text = readLine()!!
-    if (text.equals("exit", ignoreCase = true)) {
-        exitProcess(0)
-    } else {
-        return text
+    return when {
+        text.equals("exit", ignoreCase = true) -> exitProcess(0)
+        text.equals("restart", ignoreCase = true) -> null
+        else -> text
     }
 }
 
@@ -92,6 +104,7 @@ fun PFNArray.step(base: BigInteger): Pair<BigInteger, PFNArray> {
     var rad = 1
     var sd = 1
     var rsd = 1
+    var isCurrentArraySeparator = false
     while (currentIndex < currentArray.size()) {
         var entry = currentArray[currentIndex]
         if (entry.isZero()) {
@@ -102,27 +115,27 @@ fun PFNArray.step(base: BigInteger): Pair<BigInteger, PFNArray> {
             reconstructionArray.add(ReconstructionEntry(currentArray, currentIndex, null, ad - 1))
             reconstructionArray.add(ReconstructionEntry(NumberElement(if (base == BigInteger.ZERO && (sd < 2 && ad < 2)) 2 else if (base == BigInteger.ZERO) 1 else base.toInt()).wrap(), -1, null, ad))
             return base to reconstructFullArray(reconstructionArray)
-        } else if (entry is NestedArray) {
+        } else if (entry is NestedArray && entry.firstNumber().value == 0) {
             reconstructionArray.add(ReconstructionEntry(currentArray, currentIndex, true, ad - 1))
             allArrays.add(entry.array)
             ad++
             rad++
+            isCurrentArraySeparator = false
             currentArray = entry.array
             currentIndex = 0
-        } else if (entry is NestedBrace) {
+        } else if (entry is NestedBrace && entry.firstNumber().value == 0) {
             if (sd == 1)
                 throw IllegalStateException("Found brace entry on the first level")
             var stop = false
             do {
-                if (entry.isZero(strict = false)) {
+                if (entry.isZero(strict = false) && !(currentIndex == 0 && currentArray.size() == 1)) {
                     rad = 0
                     rsd = 0
                     currentIndex += 2
                     entry = currentArray[currentIndex]
                 } else {
-                    val workingPFN = allSeparators[sd - rsd - 1]
-                    val workingArray = workingPFN.flat()
-                    val workingIndex = reconstructionArray.find { it.globalIndex == sd - rsd - 1 }?.acceptIndex ?: currentIndex
+                    val workingArray = currentArray.flat()
+                    val workingIndex = currentIndex
                     val depths = workingArray.map(ArrayElement::braceDepth)
                             .filterIndexed { i, _ -> i % 2 == 0 }
                     val maxDepth = depths.max()!!
@@ -131,16 +144,17 @@ fun PFNArray.step(base: BigInteger): Pair<BigInteger, PFNArray> {
                     var c = entry.firstNumber().value
                     var p = entry.originalString.substringBefore(c.toString())
                     var q = entry.originalString.substringAfter(c.toString())
-                    if (c == 0) {
+                    if (c == 0 && (p.isNotEmpty() || q.isNotEmpty())) {
                         val newArray = (entry as NestedBrace).array
-                        reconstructionArray.add(ReconstructionEntry(workingPFN, workingIndex, false, sd - 1))
+                        reconstructionArray.add(ReconstructionEntry(currentArray, currentIndex, false, sd - 1))
                         allSeparators.add(newArray)
                         sd++
+                        isCurrentArraySeparator = true
                         rsd++
                         currentArray = newArray
                         currentIndex = 0
                         stop = true
-                    } else if (maxDepth != minDepth || workingIndex == 0 && c == 1 && p.isEmpty() && q.isEmpty()) {
+                    } else if (maxDepth != minDepth || workingIndex == 0 && c == 0 && p == q.replace('}', '{')) {
                         if (maxDepth == 0 && minDepth == 0)
                             throw IllegalStateException("Illegal braces inside of nested array")
                         val dominant = (workingArray[m] as NestedBrace).peel()
@@ -189,7 +203,7 @@ fun PFNArray.step(base: BigInteger): Pair<BigInteger, PFNArray> {
                             reconstructionArray.replaceOrAdd(sd - rsd - 1, nest(if (base == BigInteger.ZERO && sd <= 2) 2.toBigInteger() else if (base == BigInteger.ZERO) BigInteger.ONE else base))
                             reconstructionArray.removeIf { it.globalIndex > sd - rsd - 1 }
                             return base to reconstructFullArray(reconstructionArray)
-                        } else if (c > 0 && (p.isEmpty() || c != 1 || p != q.replace('}', '{'))) {
+                        } else if (c > 0) {
                             if (maxDepth == 0 && minDepth == 0)
                                 throw IllegalStateException("Illegal braces inside of nested array")
                             fun nest(n: BigInteger): PFNArray {
@@ -210,8 +224,9 @@ fun PFNArray.step(base: BigInteger): Pair<BigInteger, PFNArray> {
                             reconstructionArray.removeIf { it.globalIndex > sd - rsd - 1 }
                             allSeparators[sd - rsd - 1] = sepValue
                             allSeparators.add(previousSeparator.array)
+                            isCurrentArraySeparator = true
                             sd++
-                            if (c == 0) { // The (1)@n case
+                            if (p.isEmpty() || p != q.replace('}', '{')) { // The (1)@n case
                                 rsd++
                             }
                             currentArray = previousSeparator.array
@@ -221,12 +236,12 @@ fun PFNArray.step(base: BigInteger): Pair<BigInteger, PFNArray> {
                     }
                 }
             } while (!stop)
-        } else if (entry is NumberElement && entry.value > 0) {
-            val b = entry.value
+        } else if (entry.firstNumber().value > 0) {
+            val b = entry.firstNumber().value
             if (ad == rad) {
-                reconstructionArray.add(ReconstructionEntry(currentArray, currentIndex, null, ad - 1))
-                reconstructionArray.add(ReconstructionEntry(arrayOf<ArrayElement>(NumberElement(b-1)) to emptyArray(), -1, null, ad))
-                val full = reconstructFullArray(reconstructionArray)
+                val p = entry.toString().substringBefore(b.toString())
+                val q = entry.toString().substringAfter(b.toString()) + currentArray.flat().drop(1).joinToString("")
+                val full = parseArray("$p${b-1}$q")
                 if (base == BigInteger.ZERO) {
                     return base to full
                 }
@@ -238,28 +253,25 @@ fun PFNArray.step(base: BigInteger): Pair<BigInteger, PFNArray> {
                 }
                 return newBase to full
             }
-            var workingArray = allArrays[ad - rad - 1].flat()
-            var workingIndex = reconstructionArray.find { it.globalIndex == ad - rad - 1 }?.acceptIndex ?: currentIndex
-            if (workingIndex % 2 != 0) {
-                workingArray = currentArray.flat()
-                workingIndex = currentIndex
-            }
-            val workingArrayEntry = workingArray[workingIndex].toString()
-            var x = workingArray.copyOfRange(0, workingIndex - 2).joinToString("")
+            val globalIndex = if (isCurrentArraySeparator) sd - rsd - 1 else ad - rad - 1
+            val workingArray = currentArray.flat()
+            val workingArrayEntry = entry.toString()
+            var x = workingArray.copyOfRange(0, currentIndex - 2).joinToString("")
             val y = workingArrayEntry.substringBefore(b.toString())
-            var z = workingArrayEntry.substringAfter(b.toString()) + workingArray.copyOfRange(workingIndex + 1, workingArray.size).joinToString("")
-            for (rec in reconstructionArray.asReversed()) {
-                if (rec.brackets != false || rec.acceptIndex % 2 == 0 || rec.globalIndex < ad - rad - 1)
-                    break
-                val intermediate = rec.array.flat()
-                x = intermediate.copyOfRange(0, rec.acceptIndex).joinToString("") + "{$x"
-                z += "}" + intermediate.copyOfRange(rec.acceptIndex + 1, intermediate.size).joinToString("")
-            }
-            val previousSeparator = workingArray[workingIndex - 1] as NestedBrace
+            var z = workingArrayEntry.substringAfter(b.toString()) + workingArray.copyOfRange(currentIndex + 1, workingArray.size).joinToString("")
+            val previousSeparator = workingArray[currentIndex - 1] as NestedBrace
             val c = previousSeparator.firstNumber().value
             val p = previousSeparator.originalString.substringBefore(c.toString()) // originalString because the braces are ignored
             val q = previousSeparator.originalString.substringAfter(c.toString())
             if (c == 0 && p.isEmpty() && q.isEmpty()) {
+                for (i in (globalIndex - 1) downTo (ad - rad - 1)) {
+                    val rec = reconstructionArray.find { it.globalIndex == i }
+                    if (rec == null || rec.brackets != false)
+                        break
+                    val arr = rec.array.flat()
+                    x = arr.copyOfRange(0, rec.acceptIndex).joinToString("") + "{" + x
+                    z += "}" + arr.copyOfRange(rec.acceptIndex + 1, arr.size).joinToString("")
+                }
                 fun nest(n: BigInteger): PFNArray {
                     var result = "0"
                     var j = BigInteger.ONE
@@ -269,10 +281,20 @@ fun PFNArray.step(base: BigInteger): Pair<BigInteger, PFNArray> {
                     }
                     return parseArray("$x$result,$y${b-1}$z")
                 }
-                reconstructionArray.replaceOrAdd(ad - rad - 1, nest(if (base == BigInteger.ZERO && (sd < 2 && ad < 2)) 2.toBigInteger() else if (base == BigInteger.ZERO) BigInteger.ONE else base), brackets = true)
+                reconstructionArray.replaceOrAdd(
+                        ad - rad - 1,
+                        nest(when {
+                            base == BigInteger.ZERO && (sd < 2 && ad < 2) && currentArray.size() <= 8 -> 2.toBigInteger()
+                            base == BigInteger.ZERO && (sd + ad <= 4) -> BigInteger.ONE
+                            base == BigInteger.ZERO -> BigInteger.ZERO
+                            else -> base
+                        }),
+                        brackets = true,
+                        isArray = true
+                )
                 reconstructionArray.removeIf { it.globalIndex > ad - rad - 1 }
                 return base to reconstructFullArray(reconstructionArray)
-            } else if (c > 0 && (p.isEmpty() || c != 1 || p != q.replace('}', '{'))) {
+            } else if (c > 0) {
                 fun nest(n: BigInteger): PFNArray {
                     var result = "1{$p$c$q}$y${b-1}$z"
                     var j = BigInteger.ONE
@@ -282,17 +304,22 @@ fun PFNArray.step(base: BigInteger): Pair<BigInteger, PFNArray> {
                     }
                     return parseArray("$x$result")
                 }
-                reconstructionArray.replaceOrAdd(ad - rad - 1, nest(if (base == BigInteger.ZERO && sd < 2) 2.toBigInteger() else if (base == BigInteger.ZERO) BigInteger.ONE else base), brackets = true)
-                reconstructionArray.removeIf { it.globalIndex > ad - rad - 1 }
+                reconstructionArray.replaceOrAdd(
+                        globalIndex,
+                        nest(if (base == BigInteger.ZERO && sd < 2) 2.toBigInteger() else if (base == BigInteger.ZERO) BigInteger.ONE else base),
+                        brackets = true
+                )
+                reconstructionArray.removeIf { it.globalIndex > globalIndex }
                 return base to reconstructFullArray(reconstructionArray)
             } else {
                 val arrayValue = parseArray(x + "0{$p$c$q}1{$p$c$q}$y${b-1}$z")
-                reconstructionArray.replaceOrAdd(ad - rad - 1, arrayValue, workingIndex - 1, false)
-                reconstructionArray.removeIf { it.globalIndex > ad - rad - 1 }
+                reconstructionArray.replaceOrAdd(globalIndex, arrayValue, currentIndex - 1, false, isArray = true)
+                reconstructionArray.removeIf { it.globalIndex > globalIndex }
                 allArrays[ad - rad - 1] = arrayValue
                 allSeparators.add(previousSeparator.array)
                 sd++
-                if (c == 0) { // The (1)@n case
+                isCurrentArraySeparator = true
+                if (p.isEmpty() || p != q.replace('}', '{')) { // The (1)@n case
                     rsd++
                 }
                 currentArray = previousSeparator.array
@@ -378,19 +405,21 @@ operator fun PFNArray.compareTo(other: PFNArray): Int {
             return (a[0] as NumberElement).value - (b[0] as NumberElement).value
         } else if (a[0].braceDepth() > 0 || b[0].braceDepth() > 0) {
             val d = a[0].braceDepth() - b[0].braceDepth()
-            if (d != 0) {
-                return d
+            return if (d != 0) {
+                d
             } else {
                 a = (a[0] as NestedBrace).peel().array
                 b = (b[0] as NestedBrace).peel().array
+                a.compareTo(b)
             }
         } else if (a[0].bracketDepth() > 0 || b[0].bracketDepth() > 0) {
             val d = a[0].bracketDepth() - b[0].bracketDepth()
-            if (d != 0) {
-                return d
+            return if (d != 0) {
+                d
             } else {
                 a = (a[0] as NestedArray).peel().array
                 b = (b[0] as NestedArray).peel().array
+                a.compareTo(b)
             }
         }
     }
@@ -401,8 +430,8 @@ operator fun PFNArray.compareTo(other: PFNArray): Int {
     } else if (k == 1 && l == 1) {
         a[0].compareTo(b[0])
     } else {
-        val ma = (0 until k).filter { i -> (0 until k).all { j -> a[i] >= a[j] } }
-        val mb = (0 until l).filter { i -> (0 until l).all { j -> b[i] >= b[j] } }
+        val ma = (1 until k step 2).filter { i -> (1 until k step 2).all { j -> a[i] >= a[j] } }
+        val mb = (1 until l step 2).filter { i -> (1 until l step 2).all { j -> b[i] >= b[j] } }
         val maxma = ma.max()!!
         val maxmb = mb.max()!!
         var c = a[maxma].compareTo(b[maxmb])
@@ -435,10 +464,10 @@ operator fun PFNArray.set(i: Int, entry: ArrayElement) = if (i % 2 == 0) {
     this.second[i / 2] = entry as NestedBrace
 }
 
-fun MutableList<ReconstructionEntry>.replaceOrAdd(targetIndex: Int, replaceBy: PFNArray, index: Int? = null, brackets: Boolean? = null) {
-    for (i in 0 until this.size) {
+fun MutableList<ReconstructionEntry>.replaceOrAdd(targetIndex: Int, replaceBy: PFNArray, index: Int? = null, brackets: Boolean? = null, isArray: Boolean = true) {
+    for (i in this.lastIndex downTo 0) {
         val entry = this[i]
-        if (entry.globalIndex == targetIndex) {
+        if (entry.globalIndex == targetIndex && if (i >= 1) this[i-1].brackets == isArray else isArray) {
             this[i] = entry.copy(array = replaceBy, acceptIndex = index ?: entry.acceptIndex, brackets = brackets ?: entry.brackets)
             return
         }
